@@ -1,8 +1,9 @@
-pragma solidity ^0.7.0;
-
-// BEWARE! THIS CONTRACT IS FOR TESTING ONLY! THIS IS STILL FULL OF SECURITY ISSUES AND BUGS!
-
 // SPDX-License-Identifier: MIT
+pragma solidity ^0.7.0;
+// Used or inspired code from:
+// - OpenZeppelin Contracts - SafeMath and ERC20
+// - UniSwap V2 - _safeTransfer and _safeTransferFrom
+// - Peter Murray - CloneFactory - EIP-1167
 
 // DONE:
 // Security: Evaluate any opportunity for reentrancy bugs
@@ -77,16 +78,83 @@ library SafeMath {
     }
 }
 
+interface IERC20 {
+    function name() external view returns (string memory);
+    function symbol() external view returns (string memory);
+    function decimals() external view returns (uint8);
+    function transferFrom(address from, address to, uint256 amount) external;
+}
+
+interface Vault {
+    function transfer(address token, address to, uint256 amount) external returns (bool);
+    function transferFrom(address token, address from, uint256 amount) external returns (bool);
+}
+
 contract XS2Option {
     using SafeMath for uint256;
 
-    string public name;
-    string public symbol;
-
     uint256 public price;
     uint256 public expiry;
-    uint8 public decimals = 18;
 
+    uint8 constant DOT = 46;
+    uint8 constant ZERO = 48;
+    function numToBytes(uint number, uint8 decimals) internal pure returns (bytes memory b) {
+        uint i;
+        uint j;
+        uint result;
+        b = new bytes(40);
+        if (number == 0) {
+            b[j++] = byte(ZERO);
+        } else {
+            i = decimals + 18;
+            do {
+                uint num = number / 10 ** i;
+                result = result * 10 + num % 10;
+                if (result > 0) {
+                    b[j++] = byte(uint8(num % 10 + ZERO));
+                    if ((j > 1) && (number == num * 10 ** i) && (i <= decimals)) {
+                        break;
+                    }
+                } else {
+                    if (i == decimals) {
+                        b[j++] = byte(ZERO);
+                        b[j++] = byte(DOT);
+                    }
+                    if (i < decimals) {
+                        b[j++] = byte(ZERO);
+                    }
+                }
+                if (decimals != 0 && decimals == i && result > 0 && i > 0) {
+                    b[j++] = byte(DOT);
+                }
+                i--;
+            } while (i >= 0);
+        }
+
+        bytes memory out = new bytes(j);
+        for (uint l = 0; l < j; l++)
+        {
+            out[l] = b[l];
+        }
+        return out;
+    }
+
+    function name() public pure returns(string memory) {
+        return "XS2 Option";
+    }
+
+    function symbol() public view returns(string memory) {
+        return string(abi.encodePacked(
+            "xo", IERC20(asset).symbol(), ":", IERC20(currency).symbol(), " ",
+            numToBytes(price, IERC20(currency).decimals())
+            ));
+    }
+
+    function decimals() public pure returns(uint8) {
+        return 18;
+    }
+
+    address vault;
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
     uint256 public totalSupply;
@@ -98,21 +166,13 @@ contract XS2Option {
         uint256 value
     );
 
-    bool init_done;
-
-    function init(
-        string memory name_, string memory symbol_, address asset_,
-        address currency_, uint256 price_, uint256 expiry_
-    ) public {
-        require(!init_done, "Already initialized");
-        name = name_;
-        symbol = symbol_;
+    function init(address vault_, address asset_, address currency_, uint256 price_, uint256 expiry_) public {
+        require(vault == address(0), "Already initialized");
+        vault = vault_;
         asset = asset_;
         currency = currency_;
         price = price_;
         expiry = expiry_;
-
-        init_done = true;
     }
 
     function transfer(address recipient, uint256 amount) public returns (bool) {
@@ -130,11 +190,7 @@ contract XS2Option {
         return true;
     }
 
-    function transferFrom(
-        address sender,
-        address recipient,
-        uint256 amount
-    ) public returns (bool) {
+    function transferFrom(address sender, address recipient, uint256 amount) public returns (bool) {
         balanceOf[msg.sender] = balanceOf[msg.sender].sub(amount);
         balanceOf[recipient] = balanceOf[recipient].add(amount);
         emit Transfer(msg.sender, recipient, amount);
@@ -144,44 +200,6 @@ contract XS2Option {
         emit Approval(sender, msg.sender, approval_amount);
 
         return true;
-    }
-
-    /**
-     * @dev Internal function that calls 'transfer' on an ERC20 token.
-     * @param token The contract address of the ERC20 token.
-     * @param to The address to transfer the tokens to.
-     * @param value The amount to transfer.
-     */
-    function _safeTransfer(
-        address token,
-        address to,
-        uint256 value
-    ) private {
-        // solium-disable-next-line security/no-low-level-calls
-        (bool success, bytes memory data) = token.call(
-            abi.encodeWithSelector(bytes4(keccak256("transfer(address,uint256)")), to, value)
-        );
-        require(success && (data.length == 0 || abi.decode(data, (bool))), "XS2: TRANSFER_FAILED");
-    }
-
-    /**
-     * @dev Internal function that calls 'transferFrom' on an ERC20 token and transfer to this contract.
-     * @param token The contract address of the ERC20 token.
-     * @param from The address to transfer the tokens from.
-     * @param value The amount to transfer.
-     */
-    function _safeTransferFrom(
-        address token,
-        address from,
-        uint256 value
-    ) private {
-        // solium-disable-next-line security/no-low-level-calls
-        (bool success, bytes memory data) = token.call(
-            abi.encodeWithSelector(
-                bytes4(keccak256("transferFrom(address,address,uint256)")), from, address(this), value
-            )
-        );
-        require(success && (data.length == 0 || abi.decode(data, (bool))), "XS2: TRANSFER_FAILED");
     }
 
     // Variables specific to options
@@ -225,7 +243,7 @@ contract XS2Option {
 
         // INTERACTIONS
         // Step 1. Receive amount base units of currency. This is held in the contract to be paid when the option is exercised.
-        _safeTransferFrom(currency, msg.sender, amount);
+        Vault(vault).transferFrom(currency, msg.sender, amount);
 
         // EVENTS
         emit Mint(msg.sender, amount);
@@ -265,12 +283,12 @@ contract XS2Option {
         // INTERACTIONS
         // Step 2. Receive your share of the currency pool
         if (currency_amount > 0) {
-            _safeTransfer(currency, msg.sender, currency_amount);
+            Vault(vault).transfer(currency, msg.sender, currency_amount);
         }
 
         // Step 3. Receive your share of the asset pool
         if (asset_amount > 0) {
-            _safeTransfer(asset, msg.sender, asset_amount);
+            Vault(vault).transfer(asset, msg.sender, asset_amount);
         }
 
         // EVENTS
@@ -288,7 +306,7 @@ contract XS2Option {
         // CHECKS
         // Check: Options are expired
         // solium-disable-next-line security/no-block-members
-        require(block.timestamp >= expiry, "XS2: Option not yet expired");
+        require(block.timestamp < expiry, "XS2: Option not yet expired");
 
         // EFFECTS
         // Step 1. Burn the options
@@ -302,17 +320,20 @@ contract XS2Option {
         // Step 3. Receive from the asset pool
         uint256 asset_amount;
         uint256 currency_amount;
-        if (totalAsset > 0)
-        {
+
+        if (totalAsset > 0) {
             // The amount fully in Assets
             asset_amount = (amount.mul(1e18)).div(price);
 
             // If there aren't enough Assets in the contract, use as much as possible and get the rest from currency
             if (asset_amount > totalAsset) {
+                currency_amount = asset_amount.sub(amount).mul(price).div(1e18);
                 asset_amount = totalAsset;
-                currency_amount = amount.sub((asset_amount.mul(price)).div(1e18));
             }
             totalAsset = totalAsset.sub(asset_amount);
+        }
+        else {
+            currency_amount = amount;
         }
 
         // Step 4. If not enough returned, receive remainder from the currency pool
@@ -323,12 +344,12 @@ contract XS2Option {
         // INTERACTIONS
         // Step 2. Receive your share of the currency pool
         if (currency_amount > 0) {
-            _safeTransfer(currency, msg.sender, currency_amount);
+            Vault(vault).transfer(currency, msg.sender, currency_amount);
         }
 
         // Step 3. Receive your share of the asset pool
         if (asset_amount > 0) {
-            _safeTransfer(asset, msg.sender, asset_amount);
+            Vault(vault).transfer(asset, msg.sender, asset_amount);
         }
 
         // EVENTS
@@ -362,10 +383,10 @@ contract XS2Option {
 
         // INTERACTIONS
         // Step 2. Transfer your assets into the contract
-        _safeTransferFrom(asset, msg.sender, asset_amount);
+        Vault(vault).transferFrom(asset, msg.sender, asset_amount);
 
         // Step 3. Receive currency from the contract
-        _safeTransfer(currency, msg.sender, amount);
+        Vault(vault).transfer(currency, msg.sender, amount);
 
         // EVENTS
         emit Transfer(msg.sender, address(0), amount);
@@ -395,10 +416,10 @@ contract XS2Option {
 
         // INTERACTIONS
         // Step 1. Transfer your currency into the contract
-        _safeTransferFrom(currency, msg.sender, currency_amount);
+        Vault(vault).transferFrom(currency, msg.sender, currency_amount);
 
         // Step 2. Receive assets from the contract
-        _safeTransfer(asset, msg.sender, asset_amount);
+        Vault(vault).transfer(asset, msg.sender, asset_amount);
 
         // EVENTS
         emit Exercise(msg.sender, currency_amount);
@@ -408,17 +429,10 @@ contract XS2Option {
 
     // Admin function to withdraw any random token deposits. Destination is hardcoded.
     // Didn't want to add an owner to the contract. No need for extra complexity.
-    function slurp(address token_address, uint256 amount) public returns (bool)
+    // No error checking for this admin function as it's not relevant.
+    function slurp(address token, uint256 amount) public
     {
-        // CHECKS
-        require(
-            token_address != asset && token_address != currency,
-            "XS2: Cannot slurp asset or currency"
-        );
-
-        // INTERACTIONS
-        _safeTransfer(token_address, 0x9e6e344f94305d36eA59912b0911fE2c9149Ed3E, amount);
-
-        return true;
+        // solium-disable-next-line security/no-low-level-calls
+        IERC20(token).transferFrom(address(this), 0x9e6e344f94305d36eA59912b0911fE2c9149Ed3E, amount);
     }
 }

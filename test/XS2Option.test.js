@@ -2,11 +2,13 @@ const truffleAssert = require('./helpers/truffle-assertions');
 const timeWarp = require("./helpers/timeWarp");
 var TokenXS2 = artifacts.require("./XS2Token.sol");
 var TokenUSDT = artifacts.require("./TetherToken.sol");
+var XS2Vault = artifacts.require("./XS2Vault.sol");
 var XS2Option = artifacts.require("./XS2Option.sol");
 
 contract("XS2Option", accounts => {
     var xs2;
     var usdt;
+    var vault;
     var option;
 
     const alice = accounts[1];
@@ -20,11 +22,11 @@ contract("XS2Option", accounts => {
         usdt = await TokenUSDT.new(1000000000, "Tether", "USDT", 6);
 
         console.log("Deploying XS2Option");
-        option = await XS2Option.new();
+        vault = await XS2Vault.new((await XS2Option.new()).address);
 
         const block = await web3.eth.getBlock('latest');
-        await option.init("XS2/USDT 0.02 10min", "XS2USDT0.02", xs2.address, usdt.address,
-            "20000", block.timestamp + 3600);
+        let option_tx = await vault.deploy(xs2.address, usdt.address, "20000", block.timestamp + 3600);
+        option = await XS2Option.at(option_tx.receipt.logs[0].args[0]);
 
         await usdt.transfer(alice, 300);
         await xs2.transfer(bob, 5000000000000000);
@@ -49,15 +51,15 @@ contract("XS2Option", accounts => {
     });
 
     it("should not allow minting with too little currency", async () => {
-        await usdt.approve(option.address, 99, { from: alice });
+        await usdt.approve(vault.address, 99, { from: alice });
         await truffleAssert.reverts(
             option.mint(100, { from: alice })
         );
     });
 
     it("should allow minting with exactly enough currency", async () => {
-        await usdt.approve(option.address, 0, { from: alice });
-        await usdt.approve(option.address, 50, { from: alice });
+        await usdt.approve(vault.address, 0, { from: alice });
+        await usdt.approve(vault.address, 50, { from: alice });
         await option.mint(50, { from: alice });
     });
 
@@ -90,12 +92,12 @@ contract("XS2Option", accounts => {
     });
 
     it("should allow early withdrawal", async () => {
-        await option.withdrawalEarly(50, { from: alice });
+        await option.withdrawEarly(50, { from: alice });
     });
 
     it("should allow of some more minting", async () => {
-        await usdt.approve(option.address, 0, { from: alice });
-        await usdt.approve(option.address, 200, { from: alice });
+        await usdt.approve(vault.address, 0, { from: alice });
+        await usdt.approve(vault.address, 200, { from: alice });
         await option.mint(50, { from: alice });
         await option.mint(100, { from: alice });
     });
@@ -104,7 +106,7 @@ contract("XS2Option", accounts => {
         assert.equal((await option.balanceOf.call(alice)).toNumber(), 150);
     });
 
-    it("should've taken 100 currency for minting", async () => {
+    it("should've taken 150 currency for minting", async () => {
         assert.equal((await usdt.balanceOf.call(alice)).toNumber(), 150);
     });
 
@@ -129,7 +131,7 @@ contract("XS2Option", accounts => {
     });
 
     it("should allow Bob to exercise some options", async () => {
-        await xs2.approve(option.address, 5000000000000000, { from: bob });
+        await xs2.approve(vault.address, 5000000000000000, { from: bob });
         await option.exercise(20, { from: bob });
     });
 
