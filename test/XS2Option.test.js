@@ -5,6 +5,10 @@ var TokenUSDT = artifacts.require("./TetherToken.sol");
 var XS2Vault = artifacts.require("./XS2Vault.sol");
 var XS2Option = artifacts.require("./XS2Option.sol");
 
+function info(tx) {
+    console.log('      Gas: ' + tx.receipt.gasUsed);
+}
+
 contract("XS2Option", accounts => {
     var xs2;
     var usdt;
@@ -27,8 +31,12 @@ contract("XS2Option", accounts => {
         const block = await web3.eth.getBlock('latest');
         let option_tx = await vault.deploy(xs2.address, usdt.address, "20000", block.timestamp + 3600);
         option = await XS2Option.at(option_tx.receipt.logs[0].args[0]);
+        info(option_tx);
 
-        await usdt.transfer(alice, 300);
+        console.log("Seeding Alice with 300 USDT");
+        info(await usdt.transfer(alice, 300));
+
+        console.log("Seeding Bob with 5000000000000000 XS2");
         await xs2.transfer(bob, 5000000000000000);
     });
 
@@ -58,9 +66,9 @@ contract("XS2Option", accounts => {
     });
 
     it("should allow minting with exactly enough currency", async () => {
-        await usdt.approve(vault.address, 0, { from: alice });
-        await usdt.approve(vault.address, 50, { from: alice });
-        await option.mint(50, { from: alice });
+        info(await usdt.approve(vault.address, 0, { from: alice }));
+        info(await usdt.approve(vault.address, 50, { from: alice }));
+        info(await option.mint(50, { from: alice }));
     });
 
     it("should have minted 50 options", async () => {
@@ -92,14 +100,14 @@ contract("XS2Option", accounts => {
     });
 
     it("should allow early withdrawal", async () => {
-        await option.withdrawEarly(50, { from: alice });
+        info(await option.withdrawEarly(50, { from: alice }));
     });
 
     it("should allow of some more minting", async () => {
-        await usdt.approve(vault.address, 0, { from: alice });
-        await usdt.approve(vault.address, 200, { from: alice });
-        await option.mint(50, { from: alice });
-        await option.mint(100, { from: alice });
+        info(await usdt.approve(vault.address, 0, { from: alice }));
+        info(await usdt.approve(vault.address, 200, { from: alice }));
+        info(await option.mint(50, { from: alice }));
+        info(await option.mint(100, { from: alice }));
     });
 
     it("should have minted 100 more options", async () => {
@@ -119,7 +127,7 @@ contract("XS2Option", accounts => {
     });
 
     it("should be able to transfer some of the minted options to another account", async () => {
-        await option.transfer(bob, 100, { from: alice });
+        info(await option.transfer(bob, 100, { from: alice }));
     });
 
     it("should have reduced options for Alice to 50", async () => {
@@ -131,8 +139,8 @@ contract("XS2Option", accounts => {
     });
 
     it("should allow Bob to exercise some options", async () => {
-        await xs2.approve(vault.address, 5000000000000000, { from: bob });
-        await option.exercise(20, { from: bob });
+        info(await xs2.approve(vault.address, 5000000000000000, { from: bob }));
+        info(await option.exercise(20, { from: bob }));
     });
 
     it("should have taken 20/0.02 = 1000 assets from Bob", async () => {
@@ -160,14 +168,14 @@ contract("XS2Option", accounts => {
     });
 
     it("should allow Bob to exercise his remaining options", async () => {
-        await option.exercise(80, { from: bob });
+        info(await option.exercise(80, { from: bob }));
     });
 
     it("should allow Alice to withdraw after expiry", async () => {
         await timeWarp.advanceTimeAndBlock(3600);
 
         // Alice withdraws
-        await option.withdraw(150, { from: alice });
+        info(await option.withdraw(150, { from: alice }));
     });
 
     it("should have all balances correctly at the end", async () => {

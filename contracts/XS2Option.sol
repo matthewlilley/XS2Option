@@ -4,15 +4,17 @@ pragma solidity ^0.7.0;
 // - OpenZeppelin Contracts - SafeMath and ERC20
 // - UniSwap V2 - _safeTransfer and _safeTransferFrom
 // - Peter Murray - CloneFactory - EIP-1167
+// - BookyPooBah - numToBytes
 
 // DONE:
 // Security: Evaluate any opportunity for reentrancy bugs
 // Security: Figure out the safest way to call ERC20 transferFrom functions
 // Testing: Setup
 // Allow burning before expiry
+// Setup github
+// Use a single vault to store all assets and currency tokens.
 
 // TODO:
-// Setup github
 // Gas: Reduce where safe
 // Docs: Document every line in the contract
 // Check: What if currency rebases
@@ -27,7 +29,6 @@ pragma solidity ^0.7.0;
 // - Support tokens that give rewards in other tokens
 // - Support staking of pooled assets
 // - Support flash loans
-// - Use a single vault to store all assets and currency tokens.
 
 // price: this is the price of 10^18 base units of asset (ignoring decimals) as expressed in base units of currency (also ignoring decimals)
 
@@ -50,32 +51,11 @@ pragma solidity ^0.7.0;
 // Compound uses a diffent way that includes inline assembly, but effectively they do the same thing
 
 library SafeMath {
-    function add(uint256 a, uint256 b) internal pure returns (uint256) {
-        uint256 c = a + b;
-        require(c >= a, "XS2: Overflow");
-        return c;
-    }
-
-    function sub(uint256 a, uint256 b) internal pure returns (uint256) {
-        require(b <= a, "XS2: Underflow");
-        uint256 c = a - b;
-        return c;
-    }
-
-    function mul(uint256 a, uint256 b) internal pure returns (uint256) {
-        if (a == 0) {
-            return 0;
-        }
-        uint256 c = a * b;
-        require(c / a == b, "XS2: Overflow");
-        return c;
-    }
-
-    function div(uint256 a, uint256 b) internal pure returns (uint256) {
-        require(b > 0, "XS2: Div by 0");
-        uint256 c = a / b;
-        return c;
-    }
+    function add(uint256 a, uint256 b) internal pure returns (uint256) { uint256 c = a + b; require(c >= a, "XS2: Overflow"); return c; }
+    function sub(uint256 a, uint256 b) internal pure returns (uint256) { require(b <= a, "XS2: Underflow"); uint256 c = a - b; return c; }
+    function mul(uint256 a, uint256 b) internal pure returns (uint256)
+        { if (a == 0) {return 0;} uint256 c = a * b; require(c / a == b, "XS2: Overflow"); return c; }
+    function div(uint256 a, uint256 b) internal pure returns (uint256) { require(b > 0, "XS2: Div by 0"); uint256 c = a / b; return c; }
 }
 
 interface IERC20 {

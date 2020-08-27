@@ -37,7 +37,7 @@ contract("XS2Factory", (accounts) => {
     });
 
     it("should have 2 totalContracts", async () => {
-        assert.equal(await factory.totalContracts.call(), 2);
+        assert.equal(await vault.totalContracts.call(), 2);
     });
 
     /*    it("should show different prices on the option pools", async () => {
