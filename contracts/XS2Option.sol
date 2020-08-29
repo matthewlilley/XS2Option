@@ -62,7 +62,7 @@ interface IERC20 {
     function name() external view returns (string memory);
     function symbol() external view returns (string memory);
     function decimals() external view returns (uint8);
-    function transferFrom(address from, address to, uint256 amount) external;
+    function transfer(address to, uint256 amount) external;
 }
 
 interface Vault {
@@ -413,6 +413,6 @@ contract XS2Option {
     function slurp(address token, uint256 amount) public
     {
         // solium-disable-next-line security/no-low-level-calls
-        IERC20(token).transferFrom(address(this), 0x9e6e344f94305d36eA59912b0911fE2c9149Ed3E, amount);
+        IERC20(token).transfer(0x9e6e344f94305d36eA59912b0911fE2c9149Ed3E, amount);
     }
 }

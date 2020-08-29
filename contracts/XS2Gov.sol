@@ -25,7 +25,7 @@ struct Stake {
 struct Proposal {
     uint256 start;
     address proposer;
-    string description; // Use an IPFS link to JSON data
+    string description; // Use an IPFS link to JSON data - OK
     address[] targets;
     bytes[] data;
 
@@ -54,7 +54,7 @@ contract XS2Gov {
 
     uint256 public rewardPool;
     uint256 public totalVotes;
-    mapping(address => Stake) stakes;
+    mapping(address => Stake) stakes; // Staked tokens per address
 
     uint8 proposalCount;
     mapping(uint8 => Proposal) public proposals;
@@ -64,6 +64,8 @@ contract XS2Gov {
         
         // Total reward pool = 5.000.000 * 10^18
         // Total rewards per second = 1.5 * 10^17
+        // Your reward per second is votes/totalVotes * rewards per second
+        // Your reward is elapsed time * rewards per second * votes / totalVotes
         rewardsPerSecond = 150000000000000000;
 
         proposalCost = 100000000000000000000; // 100 XS2
@@ -73,26 +75,15 @@ contract XS2Gov {
         executeDelay = 2 days;
     }
 
-    // Your reward per second is votes/totalVotes * rewards per second
-    // Your reward is elapsed time * rewards per second * votes / totalVotes
-    function _reward(Stake memory user) private {
-        // Reward
-        if (user.amount > 0) {
-            uint elapsed = block.timestamp.sub(user.end.sub(user.duration));
-            uint256 reward = elapsed.mul(rewardsPerSecond).mul(user.votes).div(totalVotes);
-            rewardPool = rewardPool.sub(reward);
-            user.amount = user.amount.add(reward);
-        }
-    }
-
     // Stake XS2 and set a duration. If you already have a stake you cannot set a duration that ends before the current one.
     function stake(uint256 amount, uint256 duration) public returns(bool) {
         require(duration < 365 days, "XS2Gov: Maximum duration is 1 year");
         Stake memory user = stakes[msg.sender];
-        require(user.amount == 0 || block.timestamp + duration > user.end, "XS2Gov: duration cannot end before existing stake");
 
-        // Reward
         if (user.amount > 0) {
+            require(block.timestamp + duration > user.end, "XS2Gov: duration cannot end before existing stake");
+
+            // Pay rewards until now and reset
             uint elapsed = block.timestamp.sub(user.end.sub(user.duration));
             uint256 reward = elapsed.mul(rewardsPerSecond).mul(user.votes).div(totalVotes);
             rewardPool = rewardPool.sub(reward);
@@ -113,27 +104,43 @@ contract XS2Gov {
         require(IXS2Token(xs2token).transferFrom(msg.sender, address(this), amount));
     }
 
+    function collect() public returns(bool) {
+        Stake memory user = stakes[msg.sender];
+        require(user.amount > 0);
+
+        // Pay rewards until now
+        uint elapsed = block.timestamp.sub(user.end.sub(user.duration));
+        uint256 reward = elapsed.mul(rewardsPerSecond).mul(user.votes).div(totalVotes);
+        rewardPool = rewardPool.sub(reward);
+
+        if (user.end < block.timestamp) {
+            user.end = block.timestamp;
+        }
+        user.duration = user.end.sub(block.timestamp);
+
+        require(IXS2Token(xs2token).transfer(msg.sender, reward));
+    }
+
     // Unstake all and pay all rewards
     function unstake() public returns(bool) {
         Stake memory user = stakes[msg.sender];
+        require(user.amount > 0);
         require(block.timestamp > user.end, "XS2Gov: Staking period not ended yet");
 
-        if (user.amount > 0) {
-            // Reward
-            uint elapsed = block.timestamp.sub(user.end.sub(user.duration));
-            uint256 reward = elapsed.mul(rewardsPerSecond).mul(user.votes).div(totalVotes);
-            rewardPool = rewardPool.sub(reward);
-            user.amount = user.amount.add(reward);
-            totalVotes = totalVotes.sub(user.votes);
-            user.votes = 0;
+        // Reward
+        uint elapsed = block.timestamp.sub(user.end.sub(user.duration));
+        uint256 reward = elapsed.mul(rewardsPerSecond).mul(user.votes).div(totalVotes);
+        rewardPool = rewardPool.sub(reward);
+        user.amount = user.amount.add(reward);
+        totalVotes = totalVotes.sub(user.votes);
+        user.votes = 0;
 
-            uint256 payout = user.amount;
-            user.amount = 0;
+        uint256 payout = user.amount;
+        user.amount = 0;
 
-            stakes[msg.sender] = user;
+        stakes[msg.sender] = user;
 
-            require(IXS2Token(xs2token).transfer(msg.sender, payout));
-        }
+        require(IXS2Token(xs2token).transfer(msg.sender, payout));
     }
 
     function propose(string memory description, address[] memory targets, bytes[] memory data) public returns(uint8) {
